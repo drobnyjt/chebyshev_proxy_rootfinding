@@ -24,7 +24,7 @@ def chebyshev_points(a, b, N):
     return (b - a)/2.*np.cos(np.pi*k/N) + (b+a)/2.
 
 def F(r):
-    return (r**12 - 1 + 2*r**6 - r**2)*np.exp(-r)
+    return (r**12 - 1 + 2*r**6 - r**2)*np.exp(-2*r)
 
 def dF(r):
     return np.exp(-r)*(-r**12 + 12*r**11 - 2*r**6 + 12*r**5 + r**2 - 2*r + 1)
@@ -118,17 +118,17 @@ def chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, maxiter=
     a_0 = chebyshev_coefficients(F, a, b, N)
 
     for i in range(maxiter):
-        a_1 = chebyshev_coefficients(F, a, b, 2*N)
-        delta = np.append(a_0, np.zeros(N)) - a_1
+        N = 2*N
+        a_1 = chebyshev_coefficients(F, a, b, N)
+        delta = np.append(a_0, np.zeros(len(a_0) - 1)) - a_1
         error = np.sum(np.abs(delta))
         print(i, error)
-        if error < epsilon:
-            return a_1
         if a_1[-1] <= 0:
             print('Warning: failure to converge - coefficient == 0')
             return a_0
+        if error < epsilon:
+            return a_1
         a_0 = a_1
-        N = 2*N
     return a_1
 
 def is_root_spurious(F, dF, x0, threshold=1E-6):
@@ -136,13 +136,17 @@ def is_root_spurious(F, dF, x0, threshold=1E-6):
     Returns true if the Newton correction for a possible root x0 is greater than
     a threshold, which indicates that x0 is not a root of F.
     '''
-    delta = np.abs(F(x0)/dF(x0))
-    return delta > threshold
+    x1 = x0 - F(x0)/dF(x0)
+
+    delta = np.abs(F(x1)/dF(x1))
+
+    return (delta > threshold)
 
 def main():
     a = 0
-    b = 2
-    a_j = chebyshev_adaptive_approximation_coefficients(F, a, b, 2, 0.1, maxiter=10)
+    b = 5
+    a_j = chebyshev_adaptive_approximation_coefficients(F, a, b, 9, 1E-6, maxiter=10)
+    print(a_j)
 
     x = np.linspace(a, b, 1000)
     plt.plot(x, F(x))
@@ -152,9 +156,10 @@ def main():
     A = companion_matrix(a_j)
     eigenvalues, eigenvectors = np.linalg.eig(A)
 
-    roots = [(b - a)/2*eigenvalue + (b + a)/2 for eigenvalue in eigenvalues[np.isreal(eigenvalues)] if (np.abs(eigenvalue) < 1) and not is_root_spurious(F, dF, (b - a)/2*eigenvalue + (b + a)/2)]
+    roots = [(b - a)/2*eigenvalue + (b + a)/2 for eigenvalue in eigenvalues[np.isreal(eigenvalues)] if (np.abs(eigenvalue) < 1)]
     print(f'CPR roots: {roots}')
-    print(f'fsolve root: {fsolve(F, x0=1)}')
+    #print(f'Spurious? {is_root_spurious(F, dF, np.array(roots))}')
+    print(f'fsolve root: {fsolve(F, x0=1.3)}')
 
 if __name__ == '__main__':
     main()
