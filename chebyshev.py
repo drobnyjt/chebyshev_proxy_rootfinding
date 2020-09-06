@@ -71,6 +71,7 @@ def chebyshev_approximation_recursive(a_j, a, b, x):
 
     Eqs. 3.81-3.84 in Boyd (2014)
 
+    Note: there is a typo - the equation b3 = b2 is missing from the text.
     '''
     N = len(a_j) - 1
     j = np.arange(0, N + 1)
@@ -117,7 +118,7 @@ def companion_matrix(a_j):
 
     return A_jk
 
-def chebyshev_subdivide(F, intervals, N0, epsilon, N_max=20):
+def chebyshev_subdivide(F, intervals, N0=2, epsilon=1E-3, N_max=24):
     '''
     Adaptive Chebyshev Series interpolation with automatic subdivision.
 
