@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import fsolve
+import time
 
 '''
 This set of functions was designed to test some methods from Boyd's wonderful
@@ -24,10 +25,10 @@ def chebyshev_points(a, b, N):
     return (b - a)/2.*np.cos(np.pi*k/N) + (b+a)/2.
 
 def F(r):
-    return (r**12 - 1 + 2*r**6 - r**2)*np.exp(-2*r)
+    return (r**12 - 1 + 2*r**6 - r**2)*np.exp(-r)
 
 def dF(r):
-    return np.exp(-r)*(-r**12 + 12*r**11 - 2*r**6 + 12*r**5 + r**2 - 2*r + 1)
+    return (11*r**12 + 12*r*11 + 10*r**6 + 12*r**5 - r**2 - 2*r + 1)/(r + 1)**2
 
 def p(j, N):
     '''
@@ -67,7 +68,7 @@ def chebyshev_approximation_recursive(a_j, a, b, x):
     N = len(a_j) - 1
     j = np.arange(0, N + 1)
 
-    #Clenshaw-Curtis recurrence relations
+    #Clenshaw recurrence relation
     xi = (2.*x - (b + a))/(b - a)
     b1 = 0
     b2 = 0
@@ -109,57 +110,129 @@ def companion_matrix(a_j):
 
     return A_jk
 
-def chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, maxiter=10):
+def chebyshev_subdivide(F, intervals, N0, epsilon, iter_max=10, N_max=20):
+
+    coefficients = []
+    intervals_out = []
+
+    for interval in intervals:
+
+        a = interval[0]
+        b = interval[1]
+
+        a_0, error = chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, iter_max, N_max)
+        #breakpoint()
+
+        if error < epsilon:
+            intervals_out.append(interval)
+            coefficients.append(a_0)
+        else:
+            a1 = a
+            b1 = a + (b - a)/2
+
+            a2 = a + (b - a)/2
+            b2 = b
+
+            intervals_new, coefficients_new = chebyshev_subdivide(F, [[a1, b1], [a2, b2]], N0, epsilon, iter_max, N_max)
+
+            for i, c in zip(intervals_new, coefficients_new):
+                intervals_out.append(i)
+                coefficients.append(c)
+
+    return intervals_out, coefficients
+
+
+
+def chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, iter_max, N_max):
     '''
     Adaptive Chebyshev approximation, which starts from degree N0 and doubles
     the degree each iteration.
     '''
     N = N0
     a_0 = chebyshev_coefficients(F, a, b, N)
-
-    for i in range(maxiter):
+    for i in range(iter_max):
         N = 2*N
         a_1 = chebyshev_coefficients(F, a, b, N)
-        delta = np.append(a_0, np.zeros(len(a_0) - 1)) - a_1
+        delta = np.append(a_0, np.zeros(len(a_1) - len(a_0))) - a_1
         error = np.sum(np.abs(delta))
-        print(i, error)
         if a_1[-1] <= 0:
-            print('Warning: failure to converge - coefficient == 0')
-            return a_0
-        if error < epsilon:
-            return a_1
+            return a_0, error
+        if (error < epsilon) or 2*N - 1 > N_max:
+            return a_1, error
         a_0 = a_1
     return a_1
 
-def is_root_spurious(F, dF, x0, threshold=1E-6):
+def is_root_spurious(F, dF, x0, threshold=1E-3):
     '''
     Returns true if the Newton correction for a possible root x0 is greater than
     a threshold, which indicates that x0 is not a root of F.
     '''
-    x1 = x0 - F(x0)/dF(x0)
 
-    delta = np.abs(F(x1)/dF(x1))
+    x1 = x0 - F(x0)/dF(x0)
+    x2 = x1 - F(x1)/dF(x1)
+    x3 = x2 - F(x2)/dF(x2)
+
+    delta = np.abs((x3 - x0)/x0)
 
     return (delta > threshold)
 
 def main():
     a = 0
-    b = 5
-    a_j = chebyshev_adaptive_approximation_coefficients(F, a, b, 9, 1E-6, maxiter=10)
-    print(a_j)
+    b = 10
 
     x = np.linspace(a, b, 1000)
-    plt.plot(x, F(x))
-    plt.plot(x, [chebyshev_approximation_recursive(a_j, a, b, x_) for x_ in x], linestyle='--')
+    handle = plt.plot(x, F(x))
+    handles = [handle[0]]
+    legends = ['F(x)*S(x)']
+
+    start = time.time()
+    intervals, coefficients = chebyshev_subdivide(F, [[a, b]], 6, 0.1, iter_max=10, N_max=100)
+    stop = time.time()
+    print(f'Chebyshev approximation took {stop - start} s')
+
+    print(intervals)
+
+    roots = []
+    for i, c in zip(intervals, coefficients):
+        x1 = np.linspace(i[0], i[1])
+        handle = plt.plot(x1, [chebyshev_approximation_recursive(c, i[0], i[1], x_) for x_ in x1], linestyle='--')
+        plt.scatter(i[0], chebyshev_approximation_recursive(c, i[0], i[1], i[0]), color='black', marker='+')
+        plt.scatter(i[1], chebyshev_approximation_recursive(c, i[0], i[1], i[1]), color='black', marker='+')
+
+        handles.append(handle[0])
+        legends.append(f'N = {len(c) - 1}')
+
+        if np.all(c == 0):
+            break
+
+        A = companion_matrix(c)
+        start = time.time()
+        eigenvalues, eigenvectors = np.linalg.eig(A)
+        stop = time.time()
+        print(f'Eigenvalue calculation took {stop - start} s')
+
+        for eigenvalue in eigenvalues:
+            if np.isreal(eigenvalue) and np.abs(eigenvalue) < 1:
+                roots.append((i[1] - i[0])/2*eigenvalue + (i[1] + i[0])/2)
+
+    for root in roots:
+        handle = plt.scatter(root, 0, marker='*', s=100, color='black')
+        handles.append(handle)
+        legends.append(f'CPR root: {np.round(np.real(root), 6)}')
+
+    print(f'CPR x0 = {roots}')
+    start = time.time()
+    fsolve_root = fsolve(F, x0=10)
+    stop = time.time()
+    print(f'fsolve() took {stop - start} s')
+
+    print(f'fsolve root: {fsolve_root}')
+    plt.title(f'F(x) with Real Root at x0 = {fsolve_root}')
+    plt.legend(handles, legends)
     plt.show()
+    exit()
 
-    A = companion_matrix(a_j)
-    eigenvalues, eigenvectors = np.linalg.eig(A)
 
-    roots = [(b - a)/2*eigenvalue + (b + a)/2 for eigenvalue in eigenvalues[np.isreal(eigenvalues)] if (np.abs(eigenvalue) < 1)]
-    print(f'CPR roots: {roots}')
-    #print(f'Spurious? {is_root_spurious(F, dF, np.array(roots))}')
-    print(f'fsolve root: {fsolve(F, x0=1.3)}')
 
 if __name__ == '__main__':
     main()
