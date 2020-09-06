@@ -13,6 +13,9 @@ It was not designed for general purpose use, but may be enlightening to examine.
 Note that in the paper, there is a typo in Eq. B.2. (-1)a[j - 1]/2/a[N] should
 instead be (-1)a[k - 1]/2/a[N]. This is corrected in Boyd's text, Solving
 Transcendental Equations (2014).
+
+Author: Jon Drobny
+Email: drobny2@illinois.edu
 '''
 
 def chebyshev_points(a, b, N):
@@ -25,7 +28,7 @@ def chebyshev_points(a, b, N):
     return (b - a)/2.*np.cos(np.pi*k/N) + (b+a)/2.
 
 def F(r):
-    return (r**12 - 1 + 2*r**6 - r**2)*np.exp(-r)
+    return (r**12 - 1 + 2*r**6 - r**2)*np.sin(r**2)
 
 def dF(r):
     return (11*r**12 + 12*r*11 + 10*r**6 + 12*r**5 - r**2 - 2*r + 1)/(r + 1)**2
@@ -153,9 +156,8 @@ def chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, iter_max
     for i in range(iter_max):
         N = 2*N
         a_1 = chebyshev_coefficients(F, a, b, N)
-        delta = np.append(a_0, np.zeros(len(a_1) - len(a_0))) - a_1
-        error = np.sum(np.abs(delta))
-        if a_1[-1] <= 0:
+        error = np.sum(np.abs(np.append(a_0, np.zeros(len(a_1) - len(a_0))) - a_1))
+        if a_1[-1] == 0:
             return a_0, error
         if (error < epsilon) or 2*N - 1 > N_max:
             return a_1, error
@@ -186,7 +188,7 @@ def main():
     legends = ['F(x)*S(x)']
 
     start = time.time()
-    intervals, coefficients = chebyshev_subdivide(F, [[a, b]], 6, 0.1, iter_max=10, N_max=100)
+    intervals, coefficients = chebyshev_subdivide(F, [[a, b]], 9, 0.1, iter_max=10, N_max=20)
     stop = time.time()
     print(f'Chebyshev approximation took {stop - start} s')
 
@@ -209,7 +211,7 @@ def main():
         start = time.time()
         eigenvalues, eigenvectors = np.linalg.eig(A)
         stop = time.time()
-        print(f'Eigenvalue calculation took {stop - start} s')
+        #print(f'Eigenvalue calculation took {stop - start} s')
 
         for eigenvalue in eigenvalues:
             if np.isreal(eigenvalue) and np.abs(eigenvalue) < 1:
@@ -228,7 +230,7 @@ def main():
 
     print(f'fsolve root: {fsolve_root}')
     plt.title(f'F(x) with Real Root at x0 = {fsolve_root}')
-    plt.legend(handles, legends)
+    #plt.legend(handles, legends)
     plt.show()
     exit()
 
