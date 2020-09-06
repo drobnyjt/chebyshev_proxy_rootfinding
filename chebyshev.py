@@ -22,6 +22,9 @@ Author: Jon Drobny
 Email: drobny2@illinois.edu
 '''
 
+EV = 1.602E-19
+ANGSTROM = 1E-10
+
 def chebyshev_points(a, b, N):
     '''
     Returns the Chebyshev interpolation points (Lobatto grid) for an interval [a,b]
@@ -31,8 +34,11 @@ def chebyshev_points(a, b, N):
     k = np.arange(0, N + 1)
     return (b - a)/2.*np.cos(np.pi*k/N) + (b+a)/2.
 
-def F(r):
-    return (r**6 - np.exp(-r)*r**6 + 0.2 - r**4)
+def F(r, p, Er):
+    epsilon = 0.343*EV
+    sigma = 2*ANGSTROM
+
+    return (r**12 - 4*epsilon/Er*sigma**12 + 4*epsilon/Er*sigma**6*r**6 - p**2*r**10)/(ANGSTROM**12)*np.exp(-(r/sigma))
 
 def dF(r):
     return (11*r**12 + 12*r*11 + 10*r**6 + 12*r**5 - r**2 - 2*r + 1)/(r + 1)**2
@@ -169,23 +175,25 @@ def chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, N_max):
     Adaptive Chebyshev approximation, which starts from degree N0 and doubles
     the degree each iteration.
     '''
-    N = N0
-    a_0 = chebyshev_coefficients(F, a, b, N)
-    while True:
-        N = 2*N
-        a_1 = chebyshev_coefficients(F, a, b, N)
-        error = np.sum(np.abs(np.append(a_0, np.zeros(len(a_1) - len(a_0))) - a_1))
 
-        #Since the last row of the Chebyshev-Frobenius matrix is singular
+    a_0 = chebyshev_coefficients(F, a, b, N0)
+
+    while True:
+        N1 = 2*N0
+        a_1 = chebyshev_coefficients(F, a, b, N1)
+        error = np.sum(np.abs(np.append(a_0, np.zeros(N0)) - a_1))
+
+        #Since the last row of the Chebyshev-Frobenius matrix is undefined
         #when a_1[-1] == 0, step back to the previous iteration and return that
         if a_1[-1] == 0:
             return a_0, error
 
         #Otherwise, return the a_1 when error is small or next N > N_max
-        if (error < epsilon) or 2*N - 1 > N_max:
+        if (error < epsilon) or 2*N1 - 1 > N_max:
             return a_1, error
 
         a_0 = a_1
+        N0 = N1
     return a_1
 
 def is_root_spurious(F, dF, x0, threshold=1E-3):
@@ -204,61 +212,82 @@ def is_root_spurious(F, dF, x0, threshold=1E-3):
 
 def main():
     a = 0
-    b = 1
+    b = 40*ANGSTROM
 
-    N_plot = 1000
-    x = np.linspace(a, b, N_plot)
-    handle = plt.plot(x, F(x))
-    handles = [handle[0]]
-    legends = ['F(x)*S(x)']
+    impact_parameters = np.linspace(0., 20.*ANGSTROM, 100)
+    relative_energies = np.array([1E-4, 1E-3, 1E-2, 1E-1, 1E-0])*EV
+    colors = ['red', 'green', 'blue', 'purple', 'orange']
 
-    start = time.time()
-    intervals, coefficients = chebyshev_subdivide(F, [[a, b]], 3, 1E-6, N_max=60)
-    stop = time.time()
-    print(f'Chebyshev approximation took {stop - start} s')
+    handles = []
+    legends = []
+    for energy_index, Er in enumerate(relative_energies):
+        fsolve_roots = []
+        for p in impact_parameters:
 
-    print(intervals)
+            G = lambda r: F(r, p, Er)
 
-    roots = []
-    for i, c in zip(intervals, coefficients):
-        x1 = np.linspace(i[0], i[1], N_plot)
-        handle = plt.plot(x1, [chebyshev_approximation_recursive(c, i[0], i[1], x_) for x_ in x1], linestyle='--')
-        plt.scatter(i[0], chebyshev_approximation_recursive(c, i[0], i[1], i[0]), color='black', marker='+')
-        plt.scatter(i[1], chebyshev_approximation_recursive(c, i[0], i[1], i[1]), color='black', marker='+')
+            #N_plot = 1000
+            #x = np.linspace(a, b, N_plot)
+            #handle = plt.plot(x, G(x))
+            #handles = [handle[0]]
+            #legends = ['F(x)*S(x)']
 
-        handles.append(handle[0])
-        legends.append(f'N = {len(c) - 1}')
+            start = time.time()
+            intervals, coefficients = chebyshev_subdivide(G, [[a, b]], 3, 0.1, N_max=100)
+            stop = time.time()
+            #print(f'Chebyshev approximation took {stop - start} s')
 
-        if np.all(c == 0):
-            break
+            roots = []
+            for i, c in zip(intervals, coefficients):
+                #x1 = np.linspace(i[0], i[1], N_plot)
+                #handle = plt.plot(x1, [chebyshev_approximation_recursive(c, i[0], i[1], x_) for x_ in x1], linestyle='--')
+                #plt.scatter(i[0], chebyshev_approximation_recursive(c, i[0], i[1], i[0]), color='black', marker='+')
+                #plt.scatter(i[1], chebyshev_approximation_recursive(c, i[0], i[1], i[1]), color='black', marker='+')
 
-        A = companion_matrix(c)
-        start = time.time()
-        eigenvalues, eigenvectors = np.linalg.eig(A)
-        stop = time.time()
-        #print(f'Eigenvalue calculation took {stop - start} s')
+                #handles.append(handle[0])
+                #legends.append(f'N = {len(c) - 1}')
 
-        for eigenvalue in eigenvalues:
-            if np.isreal(eigenvalue) and np.abs(eigenvalue) < 1:
-                roots.append((i[1] - i[0])/2*eigenvalue + (i[1] + i[0])/2)
+                #If function is numerically identical to zero, it'll break when calculating A
+                if np.all(c == 0):
+                    break
 
-    for root in roots:
-        handle = plt.scatter(root, 0, marker='*', s=100, color='black')
+                A = companion_matrix(c)
+                start = time.time()
+                eigenvalues, eigenvectors = np.linalg.eig(A)
+                stop = time.time()
+                #print(f'Eigenvalue calculation took {stop - start} s')
+
+                for eigenvalue in eigenvalues:
+                    if np.isreal(eigenvalue) and np.abs(eigenvalue) < 1:
+                        roots.append((i[1] - i[0])/2*eigenvalue + (i[1] + i[0])/2)
+
+            start = time.time()
+            fsolve_root = fsolve(G, x0 = p, xtol=1E-12)
+            stop = time.time()
+            fsolve_roots.append(fsolve_root/ANGSTROM)
+
+            for root in roots:
+                #handle = plt.scatter(root, 0, marker='*', s=100, color='black')
+                handle = plt.scatter(p/ANGSTROM, root/ANGSTROM, marker='.', color=colors[energy_index])
+                #handles.append(handle)
+                #legends.append(f'CPR root: {np.round(np.real(root/ANGSTROM), 6)}')
+
+
         handles.append(handle)
-        legends.append(f'CPR root: {np.round(np.real(root), 6)}')
+        legends.append(f'E = {np.round(Er/EV,5)} EV')
+        plt.plot(impact_parameters/ANGSTROM, fsolve_roots, color=colors[energy_index])
+            #print(f'fsolve() took {stop - start} s')
 
-    print(f'CPR x0 = {roots}')
-    start = time.time()
-    fsolve_root = fsolve(F, x0=(a + b)/2)
-    stop = time.time()
-    print(f'fsolve() took {stop - start} s')
-
-    print(f'fsolve root: {fsolve_root}')
-    plt.title(f'F(x) with Real Root at x0 = {fsolve_root}')
+            #print(f'fsolve root: {fsolve_root}')
+            #plt.title(f'F(x) with Real Root at x0 = {fsolve_root}')
+            #plt.legend(handles, legends)
+        #plt.show()
     plt.legend(handles, legends)
-    plt.show()
-    exit()
+    plt.title('DOCA F(x) for LJ-type potential CPR: • fsolve(): - ')
+    plt.xlabel('p [A]')
+    plt.ylabel('R [A]')
 
+    plt.show()
 
 
 if __name__ == '__main__':
