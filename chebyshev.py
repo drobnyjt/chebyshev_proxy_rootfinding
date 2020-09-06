@@ -10,9 +10,13 @@ Interpolation, and the Companion Matrix (2013).
 
 It was not designed for general purpose use, but may be enlightening to examine.
 
-Note that in the paper, there is a typo in Eq. B.2. (-1)a[j - 1]/2/a[N] should
+Note that in the 2013 paper, there is a typo in Eq. B.2. (-1)a[j - 1]/2/a[N] should
 instead be (-1)a[k - 1]/2/a[N]. This is corrected in Boyd's text, Solving
 Transcendental Equations (2014).
+
+The subdivision algorithm is not described explicitly in either source, so that
+algorithm is of my own design - it could almost certainly use an optimization
+pass and could probably be smarter than simply subdividing intervals in half.
 
 Author: Jon Drobny
 Email: drobny2@illinois.edu
@@ -28,7 +32,7 @@ def chebyshev_points(a, b, N):
     return (b - a)/2.*np.cos(np.pi*k/N) + (b+a)/2.
 
 def F(r):
-    return (r**12 - 1 + 2*r**6 - r**2)*np.sin(r**2)
+    return (r**6 - np.exp(-r)*r**6 + 0.2 - r**4)
 
 def dF(r):
     return (11*r**12 + 12*r*11 + 10*r**6 + 12*r**5 - r**2 - 2*r + 1)/(r + 1)**2
@@ -113,7 +117,18 @@ def companion_matrix(a_j):
 
     return A_jk
 
-def chebyshev_subdivide(F, intervals, N0, epsilon, iter_max=10, N_max=20):
+def chebyshev_subdivide(F, intervals, N0, epsilon, N_max=20):
+    '''
+    Adaptive Chebyshev Series interpolation with automatic subdivision.
+
+    This function automatically divides the domain by halves into subintervals
+    such that the function F on each subinterval is well approximated (within
+    epsilon) by a Chebyshev series of degree N_max or less.
+
+    For each (sub)interval, the adaptive Chebyshev interpolation algorithm,
+    which uses degree-doubling, is used to find a Chebyshev series on the
+    interval that is within epsilon of F of degree N0*2^(N_iterations) < N_max.
+    '''
 
     coefficients = []
     intervals_out = []
@@ -123,21 +138,23 @@ def chebyshev_subdivide(F, intervals, N0, epsilon, iter_max=10, N_max=20):
         a = interval[0]
         b = interval[1]
 
-        a_0, error = chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, iter_max, N_max)
-        #breakpoint()
+        a_0, error = chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, N_max)
 
         if error < epsilon:
             intervals_out.append(interval)
             coefficients.append(a_0)
         else:
+            #Splitting interval in 2
             a1 = a
             b1 = a + (b - a)/2
 
             a2 = a + (b - a)/2
             b2 = b
 
-            intervals_new, coefficients_new = chebyshev_subdivide(F, [[a1, b1], [a2, b2]], N0, epsilon, iter_max, N_max)
+            #Begin next iteration with current interval divided into two subintervals
+            intervals_new, coefficients_new = chebyshev_subdivide(F, [[a1, b1], [a2, b2]], N0, epsilon, N_max)
 
+            #Unpack resulting intervals, coefficients into completed interval lists
             for i, c in zip(intervals_new, coefficients_new):
                 intervals_out.append(i)
                 coefficients.append(c)
@@ -146,21 +163,27 @@ def chebyshev_subdivide(F, intervals, N0, epsilon, iter_max=10, N_max=20):
 
 
 
-def chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, iter_max, N_max):
+def chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, N_max):
     '''
     Adaptive Chebyshev approximation, which starts from degree N0 and doubles
     the degree each iteration.
     '''
     N = N0
     a_0 = chebyshev_coefficients(F, a, b, N)
-    for i in range(iter_max):
+    while True:
         N = 2*N
         a_1 = chebyshev_coefficients(F, a, b, N)
         error = np.sum(np.abs(np.append(a_0, np.zeros(len(a_1) - len(a_0))) - a_1))
+
+        #Since the last row of the Chebyshev-Frobenius matrix is singular
+        #when a_1[-1] == 0, step back to the previous iteration and return that
         if a_1[-1] == 0:
             return a_0, error
+
+        #Otherwise, return the a_1 when error is small or next N > N_max
         if (error < epsilon) or 2*N - 1 > N_max:
             return a_1, error
+
         a_0 = a_1
     return a_1
 
@@ -180,15 +203,16 @@ def is_root_spurious(F, dF, x0, threshold=1E-3):
 
 def main():
     a = 0
-    b = 10
+    b = 1
 
-    x = np.linspace(a, b, 1000)
+    N_plot = 1000
+    x = np.linspace(a, b, N_plot)
     handle = plt.plot(x, F(x))
     handles = [handle[0]]
     legends = ['F(x)*S(x)']
 
     start = time.time()
-    intervals, coefficients = chebyshev_subdivide(F, [[a, b]], 9, 0.1, iter_max=10, N_max=20)
+    intervals, coefficients = chebyshev_subdivide(F, [[a, b]], 3, 1E-6, N_max=60)
     stop = time.time()
     print(f'Chebyshev approximation took {stop - start} s')
 
@@ -196,7 +220,7 @@ def main():
 
     roots = []
     for i, c in zip(intervals, coefficients):
-        x1 = np.linspace(i[0], i[1])
+        x1 = np.linspace(i[0], i[1], N_plot)
         handle = plt.plot(x1, [chebyshev_approximation_recursive(c, i[0], i[1], x_) for x_ in x1], linestyle='--')
         plt.scatter(i[0], chebyshev_approximation_recursive(c, i[0], i[1], i[0]), color='black', marker='+')
         plt.scatter(i[1], chebyshev_approximation_recursive(c, i[0], i[1], i[1]), color='black', marker='+')
@@ -224,13 +248,13 @@ def main():
 
     print(f'CPR x0 = {roots}')
     start = time.time()
-    fsolve_root = fsolve(F, x0=10)
+    fsolve_root = fsolve(F, x0=(a + b)/2)
     stop = time.time()
     print(f'fsolve() took {stop - start} s')
 
     print(f'fsolve root: {fsolve_root}')
     plt.title(f'F(x) with Real Root at x0 = {fsolve_root}')
-    #plt.legend(handles, legends)
+    plt.legend(handles, legends)
     plt.show()
     exit()
 
