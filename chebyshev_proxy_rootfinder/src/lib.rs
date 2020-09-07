@@ -1,5 +1,8 @@
 #[macro_use(s)]
 extern crate ndarray;
+extern crate ndarray_linalg;
+extern crate intel_mkl_src;
+
 
 #[cfg(test)]
 mod tests {
@@ -20,13 +23,19 @@ mod tests {
         let a = -10.;
         let b = -10.;
 
-        let (intervals, coefficients) = chebyshev_subdivide(&f, vec![(a, b)], 5, 1E-3, 100);
+        let (intervals, coefficients) = chebyshev_subdivide(&f, vec![(a, b)], 5, 1E-3, 10);
+
+        println!("Calculated intervals and coefficients.");
+
+        for (i, c) in intervals.iter().zip(coefficients) {
+            let A = chebyshev_frobenius_matrix(c);
+        }
+
     }
 }
 
 mod chebyshev {
     use ndarray::{Array2, Array1, ArrayBase};
-    //use ndarray_linalg::*;
     use std::f64::consts::PI;
 
     fn p(j: usize, N: usize) -> f64 {
@@ -37,7 +46,7 @@ mod chebyshev {
         }
     }
 
-    fn delta(j: usize, k: usize) -> f64 {
+    fn delta(j: i32, k: i32) -> f64 {
         if j == k {
             1.
         } else {
@@ -56,6 +65,27 @@ mod chebyshev {
         }
 
         return I_jk
+    }
+
+    pub fn chebyshev_frobenius_matrix(a_j: Array1<f64>) -> Array2<f64> {
+        let N: usize = a_j.len() - 1;
+        let mut A_jk: Array2<f64> = Array2::zeros((N, N));
+
+        for k in 0..N {
+            println!("{} {}", a_j[k], a_j[N]);
+            A_jk[[0, k]] = delta(1, k as i32);
+            println!("1");
+            A_jk[[N - 1, k]] = (-1.)*(a_j[k]/2./a_j[N]) + (1./2.)*delta(k as i32, N as i32 - 2);
+        }
+
+        println!("Interior points");
+
+        for k in 0..N {
+            for j in 1..N - 1 {
+                A_jk[[j, k]] = (delta(j as i32, k as i32 + 1) + delta(j as i32, k as i32 - 1))/2.;
+            }
+        }
+        A_jk
     }
 
     fn chebyshev_coefficients(f: &dyn Fn(f64) -> f64, a: f64, b: f64, N: usize) -> Array1<f64> {
@@ -110,7 +140,7 @@ mod chebyshev {
         return (intervals_out, coefficients)
     }
 
-    fn chebyshev_approximate(a_j: Array1<f64>, a: f64, b: f64, x: f64) -> f64 {
+    pub fn chebyshev_approximate(a_j: Array1<f64>, a: f64, b: f64, x: f64) -> f64 {
 
         let N = a_j.len() - 1;
 
@@ -135,7 +165,7 @@ mod chebyshev {
         let mut a_0 = chebyshev_coefficients(f, a, b, N0);
         let mut N0 = N0;
 
-        while true {
+        loop {
 
             let N1 = 2*N0;
             let a_1 = chebyshev_coefficients(f, a, b, N1);
