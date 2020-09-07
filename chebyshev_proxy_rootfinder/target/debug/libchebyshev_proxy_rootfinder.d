@@ -1,0 +1,1 @@
+C:\projects\chebyshev_proxy_rootfinding\chebyshev_proxy_rootfinder\target\debug\libchebyshev_proxy_rootfinder.rlib: C:\projects\chebyshev_proxy_rootfinding\chebyshev_proxy_rootfinder\src\lib.rs build.rs

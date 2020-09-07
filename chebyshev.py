@@ -13,7 +13,7 @@ Interpolation, and the Companion Matrix (2013).
 
 It was not designed for general purpose use, but may be enlightening to examine.
 
-Note that in the 2013 paper, there is a typo in Eq. B.2. (-1)a[j - 1]/2/a[N] should
+Note that in the 2013 paper, there is a typo in Eq. B.2: (-1)a[j - 1]/2/a[N] should
 instead be (-1)a[k - 1]/2/a[N]. This is corrected in Boyd's text, Solving
 Transcendental Equations (2014).
 
@@ -42,7 +42,7 @@ def chebyshev_points(a, b, N):
         xk: Lobatto grid points on [a, b] with number of points N + 1
     '''
     k = np.arange(0, N + 1)
-    return (b - a)/2.*np.cos(np.pi*k/N) + (b+a)/2.
+    return (b - a)/2.*np.cos(np.pi*k/N) + (b + a)/2.
 
 def F(r, p, Er):
     epsilon = 0.343*EV
@@ -131,7 +131,7 @@ def chebyshev_approximation_recursive(a_j, a, b, x):
         b2 = b1
         b1 = b0
 
-    fn = 0.5*(b0 - b3 + a_j[0])
+    fn = (b0 - b3 + a_j[0])/2.
     return fn
 
 def delta(j, k):
@@ -237,7 +237,8 @@ def chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, N_max):
     while True:
         N1 = 2*N0
         a_1 = chebyshev_coefficients(F, a, b, N1)
-        error = np.sum(np.abs(np.append(a_0, np.zeros(N0)) - a_1))
+        delta = np.append(a_0, np.zeros(N0)) - a_1
+        error = np.sum(np.abs(delta))
 
         #Since the last row of the Chebyshev-Frobenius matrix is undefined
         #when a_1[-1] == 0, step back to the previous iteration and return that
