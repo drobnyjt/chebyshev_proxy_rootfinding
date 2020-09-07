@@ -1,13 +1,15 @@
 #[macro_use(s)]
 extern crate ndarray;
 extern crate ndarray_linalg;
-extern crate intel_mkl_src;
+extern crate blas;
+extern crate openblas_src;
 
 
 #[cfg(test)]
 mod tests {
 
     use crate::chebyshev::*;
+    use ndarray_linalg::*;
 
     #[test]
     fn it_works() {
@@ -21,22 +23,24 @@ mod tests {
     #[test]
     fn test_chebyshev() {
         let a = -10.;
-        let b = -10.;
+        let b = 10.;
+        let N0 = 5;
+        let epsilon = 1E-3;
+        let N_max = 100;
+        let complex_threshold = 1E-6;
 
-        let (intervals, coefficients) = chebyshev_subdivide(&f, vec![(a, b)], 5, 1E-3, 10);
+        let roots = find_roots(&f, a, b, N0, epsilon, N_max, complex_threshold);
 
-        println!("Calculated intervals and coefficients.");
-
-        for (i, c) in intervals.iter().zip(coefficients) {
-            let A = chebyshev_frobenius_matrix(c);
+        for root in roots.iter() {
+            println!("{}", root)
         }
-
     }
 }
 
 mod chebyshev {
     use ndarray::{Array2, Array1, ArrayBase};
     use std::f64::consts::PI;
+    use ndarray_linalg::*;
 
     fn p(j: usize, N: usize) -> f64 {
         if (j == 0) || (j == N) {
@@ -72,13 +76,9 @@ mod chebyshev {
         let mut A_jk: Array2<f64> = Array2::zeros((N, N));
 
         for k in 0..N {
-            println!("{} {}", a_j[k], a_j[N]);
             A_jk[[0, k]] = delta(1, k as i32);
-            println!("1");
             A_jk[[N - 1, k]] = (-1.)*(a_j[k]/2./a_j[N]) + (1./2.)*delta(k as i32, N as i32 - 2);
         }
-
-        println!("Interior points");
 
         for k in 0..N {
             for j in 1..N - 1 {
@@ -86,6 +86,27 @@ mod chebyshev {
             }
         }
         A_jk
+    }
+
+    pub fn find_roots(f: &dyn Fn(f64) -> f64, a: f64, b: f64, N0: usize, epsilon: f64, N_max: usize, complex_threshold: f64) -> Vec<f64> {
+        let mut roots: Vec<f64> = Vec::new();
+
+        assert!(b > a);
+
+        let (intervals, coefficients) = chebyshev_subdivide(&f, vec![(a, b)], N0, epsilon, N_max);
+
+        for (i, c) in intervals.iter().zip(coefficients) {
+
+            let A = chebyshev_frobenius_matrix(c);
+            let (eigenvalues, _) = A.clone().eig().unwrap();
+
+            for eigenvalue in eigenvalues.iter() {
+                if (eigenvalue.re.abs() < 1.) && (eigenvalue.im.abs() < complex_threshold){
+                    roots.push(eigenvalue.re*(i.1 - i.0)/2. + (i.1 + i.0)/2.)
+                }
+            }
+        }
+        roots
     }
 
     fn chebyshev_coefficients(f: &dyn Fn(f64) -> f64, a: f64, b: f64, N: usize) -> Array1<f64> {
