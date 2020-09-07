@@ -1,7 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.optimize import fsolve
+from scipy.optimize import fsolve, newton
 import time
+
+import sys
+sys.setrecursionlimit(10**6)
 
 '''
 This set of functions was designed to test some methods from Boyd's wonderful
@@ -30,6 +33,10 @@ def chebyshev_points(a, b, N):
     Returns the Chebyshev interpolation points (Lobatto grid) for an interval [a,b]
 
     Eq. A.1 in Boyd (2013)
+
+    Args:
+        a, b: lower and upper bound of interval
+        N: degree of Chebyshev series, i.e. number of points - 1
     '''
     k = np.arange(0, N + 1)
     return (b - a)/2.*np.cos(np.pi*k/N) + (b+a)/2.
@@ -38,7 +45,10 @@ def F(r, p, Er):
     epsilon = 0.343*EV
     sigma = 2*ANGSTROM
 
-    return (r**12 - 4*epsilon/Er*sigma**12 + 4*epsilon/Er*sigma**6*r**6 - p**2*r**10)/(ANGSTROM**12)*np.exp(-(r/sigma))
+    A = 10486*EV/Er
+    B = 102E-12*EV/Er
+
+    return (r**6 - r**6*A*np.exp(-r/ANGSTROM/0.273) + B/(1./ANGSTROM)**6 - p**2*r**4)/ANGSTROM**6/(r/ANGSTROM + 1)
 
 def dF(r):
     return (11*r**12 + 12*r*11 + 10*r**6 + 12*r**5 - r**2 - 2*r + 1)/(r + 1)**2
@@ -57,14 +67,31 @@ def interpolation_matrix(N):
     Chebyshev interpolation matrix such that I.F(xk)=a_j, the Chebyshev coefficients.
 
     Eq. A.3 in Boyd (2013)
+
+    Args:
+        N: degree of Chebyshev series
+
+    Returns:
+        I_jk: Interpolation matrix
     '''
     I_jk = np.zeros((N + 1, N + 1))
     for j in range(N + 1):
         for k in range(N + 1):
-            I_jk[j,k] = 2/p(j, N)/p(k, N)/N*np.cos(j*np.pi*k/N)
+            I_jk[j, k] = 2/p(j, N)/p(k, N)/N*np.cos(j*np.pi*k/N)
     return I_jk
 
 def chebyshev_coefficients(F, a, b, N):
+    '''
+    Calculates Chebyshev interpolation matrix I_jk
+
+    Args:
+        F: univariate function smooth on a, b
+        a, b: lower and upper bound of interval
+        N: degree of Chebyshev series
+
+    Returns:
+        a_j: Chebyshev coefficients
+    '''
     xk = chebyshev_points(a, b, N)
     I_jk = interpolation_matrix(N)
     a_j = I_jk.dot(F(xk))
@@ -77,7 +104,15 @@ def chebyshev_approximation_recursive(a_j, a, b, x):
 
     Eqs. 3.81-3.84 in Boyd (2014)
 
-    Note: there is a typo - the equation b3 = b2 is missing from the text.
+    Note: there is a typo in the text - the equation b3 = b2 is missing.
+
+    Args:
+        a_j: Chebyshev coefficients
+        a, b: lower and upper bound of inclusive interval
+        x: value at which to approximate F by sum(a_j T_N)
+
+    Returns:
+        FN(x): value of Chebyshev approximation at x in [a, b]
     '''
     N = len(a_j) - 1
     j = np.arange(0, N + 1)
@@ -96,20 +131,23 @@ def chebyshev_approximation_recursive(a_j, a, b, x):
     fn = 0.5*(b0 - b3 + a_j[0])
     return fn
 
-def delta(j,k):
+def delta(j, k):
     '''
     Kronecker delta
     '''
-    if j == k:
-        return 1
-    else:
-        return 0
+    return int(j == k)
 
 def companion_matrix(a_j):
     '''
     Chebyshev-Frobenius companion matrix.
 
     Eq. B.2 in Boyd (2013)
+
+    Args:
+        a_j: Chebyshev coefficients
+
+    Returns:
+        A_jk: Chebyshev-Frobenius matrix, whose eigenvalues are roots of a_j*T_N
     '''
     N = len(a_j) - 1
     A_jk = np.zeros((N, N))
@@ -133,8 +171,15 @@ def chebyshev_subdivide(F, intervals, N0=2, epsilon=1E-3, N_max=24):
     epsilon) by a Chebyshev series of degree N_max or less.
 
     For each (sub)interval, the adaptive Chebyshev interpolation algorithm,
-    which uses degree-doubling, is used to find a Chebyshev series on the
-    interval that is within epsilon of F of degree N0*2^(N_iterations) < N_max.
+    which uses degree-doubling, is used to find a Chebyshev series of degree
+    N0*2^(N_iterations) < N_max on the interval that is within epsilon of F.
+
+    Args:
+        F: univariate function smooth on all intervals
+        intervals: list of intervals [a, b] on which to find Chebyshev series for F
+        N0: initial degree of Chebyshev series
+        epsilon: total error allowed
+        N_max: maximum degree of Chebyshev polynomial in approximation
     '''
 
     coefficients = []
@@ -142,8 +187,7 @@ def chebyshev_subdivide(F, intervals, N0=2, epsilon=1E-3, N_max=24):
 
     for interval in intervals:
 
-        a = interval[0]
-        b = interval[1]
+        a, b = interval
 
         a_0, error = chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, N_max)
 
@@ -168,12 +212,21 @@ def chebyshev_subdivide(F, intervals, N0=2, epsilon=1E-3, N_max=24):
 
     return intervals_out, coefficients
 
-
-
 def chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, N_max):
     '''
     Adaptive Chebyshev approximation, which starts from degree N0 and doubles
     the degree each iteration.
+
+    Args:
+        F: univariate function analytic and smooth on [a, b]
+        a, b: defines the interval over which the interpolation will be applied
+        N0: initial degree of Chebyshev series
+        epsilon: total error of Chebyshev series compared to F over [a, b]
+        N_max: maximum allowed degree of Chebyshev series
+
+    Returns:
+        a_j: Chebyshev coefficients for F on a, b
+        error: Total error - returns 2*N0, the maximal error, when convergence fails
     '''
 
     a_0 = chebyshev_coefficients(F, a, b, N0)
@@ -185,37 +238,64 @@ def chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, N_max):
 
         #Since the last row of the Chebyshev-Frobenius matrix is undefined
         #when a_1[-1] == 0, step back to the previous iteration and return that
-        if a_1[-1] == 0:
-            return a_0, error
 
-        #Otherwise, return the a_1 when error is small or next N > N_max
-        if (error < epsilon) or 2*N1 - 1 > N_max:
+        #Since the maximal error is 2*N0 (all a_0 = 1, all a_1 = 0)
+        if a_1[-1] == 0:
+            return a_0, 2*N0
+
+        #Otherwise, return a_1 when error is small or next N > N_max
+        if (error < epsilon) or (2*N1 - 1 >= N_max):
             return a_1, error
 
         a_0 = a_1
         N0 = N1
     return a_1
 
-def is_root_spurious(F, dF, x0, threshold=1E-3):
-    '''
-    Returns true if the Newton correction for a possible root x0 is greater than
-    a threshold, which indicates that x0 is not a root of F.
-    '''
-
-    x1 = x0 - F(x0)/dF(x0)
-    x2 = x1 - F(x1)/dF(x1)
-    x3 = x2 - F(x2)/dF(x2)
-
-    delta = np.abs((x3 - x0)/x0)
-
-    return (delta > threshold)
-
 def main():
-    a = 0
-    b = 40*ANGSTROM
+    a = 0.
+    b = 200*ANGSTROM
 
-    impact_parameters = np.linspace(0., 20.*ANGSTROM, 100)
-    relative_energies = np.array([1E-4, 1E-3, 1E-2, 1E-1, 1E-0])*EV
+    p = 1*ANGSTROM
+    Er = 0.01*EV
+    G = lambda x: F(x, p, Er)
+
+    intervals, coefficients = chebyshev_subdivide(G, [[a, b]], 5, 1E-3, N_max=100)
+    #print(intervals)
+
+    N_plot = 10000
+    x = np.linspace(a, b, N_plot)
+    plt.plot(x, G(x))
+
+    roots = []
+    for i, c in zip(intervals, coefficients):
+        x1 = np.linspace(i[0], i[1], N_plot)
+        handle = plt.plot(x1, [chebyshev_approximation_recursive(c, i[0], i[1], x_) for x_ in x1], linestyle='--')
+        plt.scatter(i[0], chebyshev_approximation_recursive(c, i[0], i[1], i[0]), color='black', marker='+')
+        plt.scatter(i[1], chebyshev_approximation_recursive(c, i[0], i[1], i[1]), color='black', marker='+')
+
+        #If function is numerically identical to zero, it'll break when calculating A
+        if np.all(c == 0):
+            break
+
+        A = companion_matrix(c)
+        eigenvalues, eigenvectors = np.linalg.eig(A)
+        for eigenvalue in eigenvalues:
+            if np.isreal(eigenvalue) and np.abs(eigenvalue) < 1:
+                roots.append((i[1] - i[0])/2*eigenvalue + (i[1] + i[0])/2)
+
+
+    for root in roots:
+        handle = plt.scatter(root, 0, marker='*', s=100, color='black')
+        transformed_root = np.real(root)
+        print(transformed_root)
+    plt.show()
+
+def sweep_p_Er():
+    a = 0
+    b = 100*ANGSTROM
+
+    impact_parameters = np.linspace(0., 10.*ANGSTROM, 100)
+    relative_energies = np.array([1E-5, 1E-4, 1E-3, 1E-2, 1E-1])*EV
     colors = ['red', 'green', 'blue', 'purple', 'orange']
 
     handles = []
@@ -233,7 +313,8 @@ def main():
             #legends = ['F(x)*S(x)']
 
             start = time.time()
-            intervals, coefficients = chebyshev_subdivide(G, [[a, b]], 3, 0.1, N_max=100)
+            intervals, coefficients = chebyshev_subdivide(G, [[a, b]], 5, 0.01, N_max=50)
+            #print(intervals)
             stop = time.time()
             #print(f'Chebyshev approximation took {stop - start} s')
 
@@ -262,7 +343,7 @@ def main():
                         roots.append((i[1] - i[0])/2*eigenvalue + (i[1] + i[0])/2)
 
             start = time.time()
-            fsolve_root = fsolve(G, x0 = p, xtol=1E-12)
+            fsolve_root = fsolve(G, x0 = p*2, xtol=1E-12)
             stop = time.time()
             fsolve_roots.append(fsolve_root/ANGSTROM)
 
@@ -271,7 +352,6 @@ def main():
                 handle = plt.scatter(p/ANGSTROM, root/ANGSTROM, marker='.', color=colors[energy_index])
                 #handles.append(handle)
                 #legends.append(f'CPR root: {np.round(np.real(root/ANGSTROM), 6)}')
-
 
         handles.append(handle)
         legends.append(f'E = {np.round(Er/EV,5)} EV')
@@ -283,7 +363,7 @@ def main():
             #plt.legend(handles, legends)
         #plt.show()
     plt.legend(handles, legends)
-    plt.title('DOCA F(x) for LJ-type potential CPR: • fsolve(): - ')
+    plt.title('DOCA F(x) for Buckingham-type potential CPR: • fsolve(): - ')
     plt.xlabel('p [A]')
     plt.ylabel('R [A]')
 
