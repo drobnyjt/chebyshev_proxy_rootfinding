@@ -37,6 +37,9 @@ def chebyshev_points(a, b, N):
     Args:
         a, b: lower and upper bound of interval
         N: degree of Chebyshev series, i.e. number of points - 1
+
+    Returns:
+        xk: Lobatto grid points on [a, b] with number of points N + 1
     '''
     k = np.arange(0, N + 1)
     return (b - a)/2.*np.cos(np.pi*k/N) + (b+a)/2.
@@ -82,7 +85,7 @@ def interpolation_matrix(N):
 
 def chebyshev_coefficients(F, a, b, N):
     '''
-    Calculates Chebyshev interpolation matrix I_jk
+    Calculates Chebyshev coefficents a_j for F(x) ~ sum( a_j T_j (x))
 
     Args:
         F: univariate function smooth on a, b
