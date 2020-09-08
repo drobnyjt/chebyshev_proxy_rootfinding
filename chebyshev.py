@@ -252,30 +252,35 @@ def chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, N_max):
 
 def main():
     a = -11
-    b = 100
+    b = 30
     N0 = 2
     epsilon = 1E-6
     truncation_threshold = 1E-12
     N_max = 500
 
-    F =lambda x:  (x - 2.)*(x + 3.)*(x - 8.)*(x + 1E-4)*(x - 1E-5)*(x + 1.)*(x + 10)*np.exp(-np.abs(x))
+    F =lambda x:  (x - 2.)*(x + 3.)*(x - 8.)*(x + 1E-4)*(x - 1E-5)*(x + 1.)*(x + 10)*np.exp(-np.abs(x))*np.sin(x**2)
     #G = lambda x: F(x)*np.exp(-np.abs(x))
 
     print("Subdividing...")
+    start = time.time()
     intervals, coefficients = chebyshev_subdivide(F, [[a, b]], N0=N0, epsilon=epsilon, N_max=N_max, interval_limit=1E-10)
+    stop = time.time()
+
+    print(f'Chebyshev Adaptive Interpolation with Subdivision took: {stop - start} s')
+
     for interval, coefficient in zip(intervals, coefficients):
         print(interval, np.size(coefficient) - 1)
 
     N_plot = 100
-    x = np.linspace(a, b, N_plot*10)
+    x = np.linspace(a, b, N_plot*100)
     plt.plot(x, F(x), linewidth=3)
 
     roots = []
     for i, c in zip(intervals, coefficients):
         x1 = np.linspace(i[0], i[1], N_plot)
         handle = plt.plot(x1, [chebyshev_approximation_recursive(c, i[0], i[1], x_) for x_ in x1], linestyle='--')
-        plt.scatter(i[0], chebyshev_approximation_recursive(c, i[0], i[1], i[0]), color='black', marker='+')
-        plt.scatter(i[1], chebyshev_approximation_recursive(c, i[0], i[1], i[1]), color='black', marker='+')
+        plt.scatter(i[0], chebyshev_approximation_recursive(c, i[0], i[1], i[0]), color='black', marker='+', s=100)
+        plt.scatter(i[1], chebyshev_approximation_recursive(c, i[0], i[1], i[1]), color='black', marker='+', s=100)
 
         #If function is numerically identical to zero, it'll break when calculating A
         if np.all(c < truncation_threshold):
