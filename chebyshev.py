@@ -4,7 +4,6 @@ from scipy.optimize import fsolve, newton
 import time
 
 import sys
-sys.setrecursionlimit(10**6)
 
 '''
 This set of functions was designed to test some methods from Boyd's wonderful
@@ -165,7 +164,7 @@ def companion_matrix(a_j):
 
     return A_jk
 
-def chebyshev_subdivide(F, intervals, N0=2, epsilon=1E-3, N_max=24):
+def chebyshev_subdivide(F, intervals, N0=2, epsilon=1E-3, N_max=24, interval_limit=1E-3):
     '''
     Adaptive Chebyshev Series interpolation with automatic subdivision.
 
@@ -189,8 +188,11 @@ def chebyshev_subdivide(F, intervals, N0=2, epsilon=1E-3, N_max=24):
     intervals_out = []
 
     for interval in intervals:
-
         a, b = interval
+
+        if (b - a) < interval_limit:
+            print("Reached interval limit. Did not converge. Relax epsilon.")
+            return None, None
 
         a_0, error = chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, N_max)
 
@@ -240,15 +242,8 @@ def chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, N_max):
         delta = np.append(a_0, np.zeros(N0)) - a_1
         error = np.sum(np.abs(delta))
 
-        #Since the last row of the Chebyshev-Frobenius matrix is undefined
-        #when a_1[-1] == 0, step back to the previous iteration and return that
-
-        #Since the maximal error is 2*N0 (all a_0 = 1, all a_1 = 0)
-        if a_1[-1] == 0:
-            return a_0, 2*N0
-
         #Otherwise, return a_1 when error is small or next N > N_max
-        if (error < epsilon) or (2*N1 - 1 >= N_max):
+        if (error < epsilon) or (2*N1 >= N_max//2):
             return a_1, error
 
         a_0 = a_1
@@ -256,19 +251,24 @@ def chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, N_max):
     return a_1
 
 def main():
-    a = 0.
-    b = 200*ANGSTROM
+    a = -11
+    b = 100
+    N0 = 2
+    epsilon = 1E-6
+    truncation_threshold = 1E-12
+    N_max = 500
 
-    p = 1*ANGSTROM
-    Er = 0.01*EV
-    G = lambda x: F(x, p, Er)
+    F =lambda x:  (x - 2.)*(x + 3.)*(x - 8.)*(x + 1E-4)*(x - 1E-5)*(x + 1.)*(x + 10)*np.exp(-np.abs(x))
+    #G = lambda x: F(x)*np.exp(-np.abs(x))
 
-    intervals, coefficients = chebyshev_subdivide(G, [[a, b]], 5, 1E-3, N_max=100)
-    #print(intervals)
+    print("Subdividing...")
+    intervals, coefficients = chebyshev_subdivide(F, [[a, b]], N0=N0, epsilon=epsilon, N_max=N_max, interval_limit=1E-10)
+    for interval, coefficient in zip(intervals, coefficients):
+        print(interval, np.size(coefficient) - 1)
 
-    N_plot = 10000
-    x = np.linspace(a, b, N_plot)
-    plt.plot(x, G(x))
+    N_plot = 100
+    x = np.linspace(a, b, N_plot*10)
+    plt.plot(x, F(x), linewidth=3)
 
     roots = []
     for i, c in zip(intervals, coefficients):
@@ -278,98 +278,28 @@ def main():
         plt.scatter(i[1], chebyshev_approximation_recursive(c, i[0], i[1], i[1]), color='black', marker='+')
 
         #If function is numerically identical to zero, it'll break when calculating A
-        if np.all(c == 0):
+        if np.all(c < truncation_threshold):
             break
 
-        A = companion_matrix(c)
+        c_list = list(c)
+        c_list.reverse()
+        for index, a in enumerate(c_list):
+            #print(index, a)
+            if a > truncation_threshold:
+                #print("final: ", index)
+                break
+        c_truncated = c[:len(c) - index]
+
+        A = companion_matrix(c_truncated)
         eigenvalues, eigenvectors = np.linalg.eig(A)
         for eigenvalue in eigenvalues:
             if np.isreal(eigenvalue) and np.abs(eigenvalue) < 1:
                 roots.append((i[1] - i[0])/2*eigenvalue + (i[1] + i[0])/2)
-
+                print((i[1] - i[0])/2*np.real(eigenvalue) + (i[1] + i[0])/2)
 
     for root in roots:
         handle = plt.scatter(root, 0, marker='*', s=100, color='black')
         transformed_root = np.real(root)
-        print(transformed_root)
-    plt.show()
-
-def sweep_p_Er():
-    a = 0
-    b = 100*ANGSTROM
-
-    impact_parameters = np.linspace(0., 10.*ANGSTROM, 100)
-    relative_energies = np.array([1E-5, 1E-4, 1E-3, 1E-2, 1E-1])*EV
-    colors = ['red', 'green', 'blue', 'purple', 'orange']
-
-    handles = []
-    legends = []
-    for energy_index, Er in enumerate(relative_energies):
-        fsolve_roots = []
-        for p in impact_parameters:
-
-            G = lambda r: F(r, p, Er)
-
-            #N_plot = 1000
-            #x = np.linspace(a, b, N_plot)
-            #handle = plt.plot(x, G(x))
-            #handles = [handle[0]]
-            #legends = ['F(x)*S(x)']
-
-            start = time.time()
-            intervals, coefficients = chebyshev_subdivide(G, [[a, b]], 5, 0.01, N_max=50)
-            #print(intervals)
-            stop = time.time()
-            #print(f'Chebyshev approximation took {stop - start} s')
-
-            roots = []
-            for i, c in zip(intervals, coefficients):
-                #x1 = np.linspace(i[0], i[1], N_plot)
-                #handle = plt.plot(x1, [chebyshev_approximation_recursive(c, i[0], i[1], x_) for x_ in x1], linestyle='--')
-                #plt.scatter(i[0], chebyshev_approximation_recursive(c, i[0], i[1], i[0]), color='black', marker='+')
-                #plt.scatter(i[1], chebyshev_approximation_recursive(c, i[0], i[1], i[1]), color='black', marker='+')
-
-                #handles.append(handle[0])
-                #legends.append(f'N = {len(c) - 1}')
-
-                #If function is numerically identical to zero, it'll break when calculating A
-                if np.all(c == 0):
-                    break
-
-                A = companion_matrix(c)
-                start = time.time()
-                eigenvalues, eigenvectors = np.linalg.eig(A)
-                stop = time.time()
-                #print(f'Eigenvalue calculation took {stop - start} s')
-
-                for eigenvalue in eigenvalues:
-                    if np.isreal(eigenvalue) and np.abs(eigenvalue) < 1:
-                        roots.append((i[1] - i[0])/2*eigenvalue + (i[1] + i[0])/2)
-
-            start = time.time()
-            fsolve_root = fsolve(G, x0 = p*2, xtol=1E-12)
-            stop = time.time()
-            fsolve_roots.append(fsolve_root/ANGSTROM)
-
-            for root in roots:
-                #handle = plt.scatter(root, 0, marker='*', s=100, color='black')
-                handle = plt.scatter(p/ANGSTROM, root/ANGSTROM, marker='.', color=colors[energy_index])
-                #handles.append(handle)
-                #legends.append(f'CPR root: {np.round(np.real(root/ANGSTROM), 6)}')
-
-        handles.append(handle)
-        legends.append(f'E = {np.round(Er/EV,5)} EV')
-        plt.plot(impact_parameters/ANGSTROM, fsolve_roots, color=colors[energy_index])
-            #print(f'fsolve() took {stop - start} s')
-
-            #print(f'fsolve root: {fsolve_root}')
-            #plt.title(f'F(x) with Real Root at x0 = {fsolve_root}')
-            #plt.legend(handles, legends)
-        #plt.show()
-    plt.legend(handles, legends)
-    plt.title('DOCA F(x) for Buckingham-type potential CPR: • fsolve(): - ')
-    plt.xlabel('p [A]')
-    plt.ylabel('R [A]')
 
     plt.show()
 
