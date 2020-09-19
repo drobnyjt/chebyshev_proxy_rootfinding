@@ -251,19 +251,40 @@ def chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, N_max):
     return a_1
 
 def main():
-    a = -11
-    b = 30
+    a = 0.
+    b = 15*ANGSTROM
     N0 = 2
-    epsilon = 1E-6
+    epsilon = 1E-7
     truncation_threshold = 1E-12
-    N_max = 500
+    N_max = 1000
 
-    F =lambda x:  (x - 2.)*(x + 3.)*(x - 8.)*(x + 1E-4)*(x - 1E-5)*(x + 1.)*(x + 10)*np.exp(-np.abs(x))*np.sin(x**2)
-    #G = lambda x: F(x)*np.exp(-np.abs(x))
+    #let a: f64 = interactions::screening_length(Za, Zb, interaction_potential);
+    #let reduced_energy: f64 = LINDHARD_REDUCED_ENERGY_PREFACTOR*a/Za/Zb*relative_energy;
+    #let beta: f64 = impact_parameter/a;
+    #return x0 - interactions::phi(x0, interaction_potential)/reduced_energy - beta*beta/x0;
+
+    Er = 1*EV
+    p = 1*ANGSTROM
+    A = 2000*EV
+    d = 32.32*ANGSTROM**6*EV
+    rho = 0.2688*ANGSTROM
+
+    xtest = np.linspace(0., b, 1000)
+    V = lambda r: A*np.exp(-r/rho) - d/r**6
+    plt.plot(xtest/ANGSTROM, V(xtest)/EV)
+    plt.axis([0., b/ANGSTROM, -100., 100.])
+    plt.show()
+
+    G = lambda x: x**6*(1. - A*np.exp(-x/rho)) - d - p**2*x**4
+    F = lambda x: G(x)/(a**6 + x**6)
+
+    N_plot = 100
+    x = np.linspace(a, b, N_plot*100)
+    plt.plot(x, F(x), linewidth=3)
 
     print("Subdividing...")
     start = time.time()
-    intervals, coefficients = chebyshev_subdivide(F, [[a, b]], N0=N0, epsilon=epsilon, N_max=N_max, interval_limit=1E-10)
+    intervals, coefficients = chebyshev_subdivide(F, [[a, b]], N0=N0, epsilon=epsilon, N_max=N_max, interval_limit=1E-13)
     stop = time.time()
 
     print(f'Chebyshev Adaptive Interpolation with Subdivision took: {stop - start} s')
@@ -271,9 +292,7 @@ def main():
     for interval, coefficient in zip(intervals, coefficients):
         print(interval, np.size(coefficient) - 1)
 
-    N_plot = 100
-    x = np.linspace(a, b, N_plot*100)
-    plt.plot(x, F(x), linewidth=3)
+
 
     roots = []
     for i, c in zip(intervals, coefficients):
