@@ -5,6 +5,160 @@ import time
 
 import sys
 
+PI = np.pi
+Q = 1.602E-19
+EV = Q
+AMU = 1.66E-27
+ANGSTROM = 1E-10
+MICRON = 1E-6
+PM = 1E-12
+NM = 1E-9
+CM = 1E-2
+EPS0 = 8.85E-12
+A0 = 0.52918E-10
+K = 1.11265E-10
+ME = 9.11E-31
+SQRTPI = 1.772453850906
+SQRT2PI = 2.506628274631
+C = 299792000.
+BETHE_BLOCH_PREFACTOR = 4.*PI*(Q*Q/(4.*PI*EPS0))*(Q*Q/(4.*PI*EPS0))/ME/C/C
+LINDHARD_SCHARFF_PREFACTOR = 1.212*ANGSTROM*ANGSTROM*Q
+LINDHARD_REDUCED_ENERGY_PREFACTOR = 4.*PI*EPS0/Q/Q
+
+def eam_D(r):
+    rn = [
+        4.268900000000000,
+        3.985680000000000,
+        3.702460000000000,
+        3.419240000000000,
+        3.136020000000000,
+        2.852800000000000,
+        2.741100000000000,
+        2.604045000000000,
+        2.466990000000000,
+    ]
+
+    vn = [
+        -0.1036435865158945,
+        -0.2912948318493851,
+        -2.096765499656263,
+        19.16045452701010,
+        -41.01619862085917,
+        46.05205617244703,
+        26.42203930654883,
+        15.35211507804088,
+        14.12806259323987,
+    ]
+
+    phi = 0.
+    for v_i, r_i in zip(vn, rn):
+        phi += v_i*(r_i - r)**3*np.heaviside(r_i - r, 1.)
+    return phi
+
+def eam_high_e(r):
+
+    r1 = 1.10002200044
+    r2 = 2.10004200084
+
+    if r <= r1:
+        Za = 74
+        Zb = 74
+        a = 0.88534*A0/(Za**(0.23) + Zb**(0.23))
+        x = r/a*ANGSTROM
+        return Za*Zb*Q**2/4./PI/EPS0/(r*ANGSTROM)*(0.02817*np.exp(-0.20162*x) + 0.28022*np.exp(-0.40290*x) + 0.50986*np.exp(-0.94229*x) + 0.18175*np.exp(-3.1998*x))/EV
+
+    elif r <= r2:
+        a = [
+            1.389653276380862E4,
+            -3.596912431628216E4,
+            3.739206756369099E4,
+            -1.933748081656593E4,
+            0.495516793802426E4,
+            -0.050264585985867E4
+        ]
+        x = r
+        return a[0] + a[1]*x + a[2]*x**2 + a[3]*x**3 + a[4]*x**4 + a[5]*x**5
+    else:
+        rn = [
+            4.268900000000000,
+            3.985680000000000,
+            3.702460000000000,
+            3.419240000000000,
+            3.136020000000000,
+            2.852800000000000,
+            2.741100000000000,
+            2.604045000000000,
+            2.466990000000000,
+        ]
+
+        vn = [
+            -0.1036435865158945,
+            -0.2912948318493851,
+            -2.096765499656263,
+            19.16045452701010,
+            -41.01619862085917,
+            46.05205617244703,
+            26.42203930654883,
+            15.35211507804088,
+            14.12806259323987,
+        ]
+
+        phi = 0.
+        for v_i, r_i in zip(vn, rn):
+            phi += v_i*(r_i - r)**3*np.heaviside(r_i - r, 1.)
+        return phi
+
+
+def eam(r):
+    a=[
+        0.960851701343041E2,
+        -0.184410923895214E3,
+        0.935784079613550E2,
+        -0.798358265041677E1,
+        0.747034092936229E1,
+        -0.152756043708453E1,
+        0.125205932634393E1,
+        0.163082162159425E1,
+        -0.141854775352260E1,
+        -0.819936046256149E0,
+        0.198013514305908E1,
+        -0.696430179520267E0,
+        0.304546909722160E-1,
+        -0.163131143161660E1,
+        0.138409896486177E1
+    ]
+    delta = [
+        2.564897500000000,
+        2.629795000000000,
+        2.694692500000000,
+        2.866317500000000,
+        2.973045000000000,
+        3.079772500000000,
+        3.516472500000000,
+        3.846445000000000,
+        4.176417500000000,
+        4.700845000000000,
+        4.895300000000000,
+        5.089755000000000,
+        5.342952500000000,
+        5.401695000000000,
+        5.460437500000000
+    ]
+
+    phi = 0.
+    for a_i, delta_i in zip(a, delta):
+        phi += a_i*(delta_i - r)**3*np.heaviside(delta_i - r, 1.)
+    return phi
+
+def krc(Za, Zb, r):
+    a = 0.885*A0*(np.sqrt(Za) + np.sqrt(Zb))**(-2./3.)
+    x = r/a*ANGSTROM
+    return Za*Zb*Q**2/4./PI/EPS0/(r*ANGSTROM)*(0.19*np.exp(-0.28*x) + 0.47*np.exp(-0.64*x) + 0.34*np.exp(-1.9*x))/EV
+
+def morse(r, alpha, d, r0):
+    return d*(np.exp(-2*alpha*(r*ANGSTROM - r0)) - 2.*np.exp(-alpha*(r*ANGSTROM - r0)))/EV
+
+
 '''
 This set of functions was designed to test some methods from Boyd's wonderful
 paper, Finding the Zeros of a Univariate Equation: Proxy Rootfinders, Chebyshev
@@ -96,7 +250,7 @@ def chebyshev_coefficients(F, a, b, N):
     '''
     xk = chebyshev_points(a, b, N)
     I_jk = interpolation_matrix(N)
-    a_j = I_jk.dot(F(xk))
+    a_j = I_jk.dot([F(xk_) for xk_ in xk])
     return a_j
 
 def chebyshev_approximation_recursive(a_j, a, b, x):
@@ -190,8 +344,7 @@ def chebyshev_subdivide(F, intervals, N0=2, epsilon=1E-3, N_max=24, interval_lim
     for interval in intervals:
         a, b = interval
 
-        if (b - a) < interval_limit:
-            print("Reached interval limit. Did not converge. Relax epsilon.")
+        if abs(b - a) < interval_limit:
             return None, None
 
         a_0, error = chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, N_max)
@@ -208,7 +361,7 @@ def chebyshev_subdivide(F, intervals, N0=2, epsilon=1E-3, N_max=24, interval_lim
             b2 = b
 
             #Begin next iteration with current interval divided into two subintervals
-            intervals_new, coefficients_new = chebyshev_subdivide(F, [[a1, b1], [a2, b2]], N0, epsilon, N_max)
+            intervals_new, coefficients_new = chebyshev_subdivide(F, [[a1, b1], [a2, b2]], N0, epsilon, N_max, interval_limit)
 
             #Unpack resulting intervals, coefficients into completed interval lists
             for i, c in zip(intervals_new, coefficients_new):
@@ -250,36 +403,74 @@ def chebyshev_adaptive_approximation_coefficients(F, a, b, N0, epsilon, N_max):
         N0 = N1
     return a_1
 
-def main():
-    a = 0.
-    b = 5*ANGSTROM
-    N0 = 2
-    epsilon = 1E-10
-    truncation_threshold = 1E-12
-    N_max = 500
+def eam(r):
 
-    #let a: f64 = interactions::screening_length(Za, Zb, interaction_potential);
-    #let reduced_energy: f64 = LINDHARD_REDUCED_ENERGY_PREFACTOR*a/Za/Zb*relative_energy;
-    #let beta: f64 = impact_parameter/a;
-    #return x0 - interactions::phi(x0, interaction_potential)/reduced_energy - beta*beta/x0;
+    r/=ANGSTROM
+
+    a=[
+        0.960851701343041E2,
+        -0.184410923895214E3,
+        0.935784079613550E2,
+        -0.798358265041677E1,
+        0.747034092936229E1,
+        -0.152756043708453E1,
+        0.125205932634393E1,
+        0.163082162159425E1,
+        -0.141854775352260E1,
+        -0.819936046256149E0,
+        0.198013514305908E1,
+        -0.696430179520267E0,
+        0.304546909722160E-1,
+        -0.163131143161660E1,
+        0.138409896486177E1
+    ]
+    delta = [
+        2.564897500000000,
+        2.629795000000000,
+        2.694692500000000,
+        2.866317500000000,
+        2.973045000000000,
+        3.079772500000000,
+        3.516472500000000,
+        3.846445000000000,
+        4.176417500000000,
+        4.700845000000000,
+        4.895300000000000,
+        5.089755000000000,
+        5.342952500000000,
+        5.401695000000000,
+        5.460437500000000
+    ]
+
+    phi = 0.
+    for a_i, delta_i in zip(a, delta):
+        phi += a_i*(delta_i - r)**3*np.heaviside(delta_i - r, 1.)
+    return phi*EV
+
+def main():
+    b = 10.*ANGSTROM
+    N0 = 2
+    epsilon = 0.01
+    truncation_threshold = 1E-22
+    N_max = 500
 
     Er = 0.1*EV
     p = 0.1*ANGSTROM
-    D = 0.2*EV
-    alpha = 1.1836/ANGSTROM
-    r0 = 3.733*ANGSTROM
 
+    G = lambda r: ((r/ANGSTROM)**2 - (r/ANGSTROM)**2*eam_D(r/ANGSTROM)*EV/Er - (p/ANGSTROM)**2)
 
-    F = lambda r: (r*alpha)**2 - (r*alpha)**2*D/Er*(np.exp(-2*alpha*(r - r0)) - 2.*np.exp(-alpha*(r - r0))) - (p*alpha)**2
-    G = lambda r: F(r)#/(1. + (r*alpha)**2)
+    N_plot = 1000
+    x = np.linspace(0.0, b, N_plot*100)*ANGSTROM
 
-    N_plot = 100
-    x = np.linspace(a, b, N_plot*100)
-    plt.plot(x, G(x), linewidth=3)
+    handles = []
+    legends = ['F(r) for W-W']
+
+    handle = plt.plot(x/ANGSTROM, [G(x_/ANGSTROM) for x_ in x], linewidth=3)
+    handles.append(handle[0])
 
     print("Subdividing...")
     start = time.time()
-    intervals, coefficients = chebyshev_subdivide(G, [[a, b]], N0=N0, epsilon=epsilon, N_max=N_max, interval_limit=1E-16)
+    intervals, coefficients = chebyshev_subdivide(G, [[0.0, b/2.], [b/2, b]], N0=N0, epsilon=epsilon, N_max=N_max, interval_limit=0)
     stop = time.time()
 
     print(f'Chebyshev Adaptive Interpolation with Subdivision took: {stop - start} s')
@@ -287,14 +478,14 @@ def main():
     for interval, coefficient in zip(intervals, coefficients):
         print(interval, np.size(coefficient) - 1)
 
-
-
     roots = []
     for i, c in zip(intervals, coefficients):
         x1 = np.linspace(i[0], i[1], N_plot)
         handle = plt.plot(x1, [chebyshev_approximation_recursive(c, i[0], i[1], x_) for x_ in x1], linestyle='--')
         plt.scatter(i[0], chebyshev_approximation_recursive(c, i[0], i[1], i[0]), color='black', marker='+', s=100)
         plt.scatter(i[1], chebyshev_approximation_recursive(c, i[0], i[1], i[1]), color='black', marker='+', s=100)
+        handles.append(handle[0])
+        legends.append(f'N = {len(c) - 1 }')
 
         #If function is numerically identical to zero, it'll break when calculating A
         if np.all(c < truncation_threshold):
@@ -318,8 +509,15 @@ def main():
 
     for root in roots:
         handle = plt.scatter(root, 0, marker='*', s=100, color='black')
+        handles.append(handle)
+        legends.append(f'Root = {np.round(np.real(root/ANGSTROM), 2)} A')
         transformed_root = np.real(root)
 
+    plt.xlabel('r [m]')
+    plt.ylabel('F(r) A.U.')
+    plt.title('DoCA Function for W-W Cubic Spline Potential')
+    plt.plot([0., b], [0., 0.], linestyle='--', color='black')
+    plt.legend(handles, legends, loc='lower right')
     plt.show()
 
 
